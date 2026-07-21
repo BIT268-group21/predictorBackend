@@ -1,0 +1,35 @@
+spring:
+  task:
+    scheduling:
+      enabled: false
+
+  datasource:
+    url: jdbc:h2:mem:stock_predictor;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+
+  sql:
+    init:
+      mode: never
+
+app:
+  fmp:
+    api-key: test-key
+    base-url: http://localhost:9090
+  ml:
+    base-url: http://localhost:9091
+  ingestion:
+    cron: "-"
+    price-lookback-days: 30
+  prediction:
+    cron: "-"
+  accuracy:
+    cron: "-"

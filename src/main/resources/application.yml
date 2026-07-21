@@ -1,0 +1,40 @@
+spring:
+  application:
+    name: stock-predictor
+
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/stock_predictor}
+    username: ${DATABASE_USERNAME:postgres}
+    password: ${DATABASE_PASSWORD:postgres}
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+server:
+  port: ${PORT:8080}
+
+app:
+  fmp:
+    api-key: ${FMP_API_KEY:}
+    base-url: https://financialmodelingprep.com
+  ml:
+    base-url: ${ML_SERVICE_URL:http://localhost:8000}
+  ingestion:
+    price-lookback-days: 60
+    cron: ${INGESTION_CRON:0 0 18 * * *}
+  prediction:
+    cron: ${PREDICTION_CRON:0 30 18 * * *}
+  accuracy:
+    cron: ${ACCURACY_CRON:0 0 19 * * *}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
+
+logging:
+  level:
+    com.stock_predictor: INFO
