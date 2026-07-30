@@ -1,0 +1,35 @@
+spring:
+  task:
+    scheduling:
+      enabled: false
+
+  datasource:
+    # username/password intentionally omitted: Spring's property binding treats a
+    # whitespace-only password as unset, so credentials here are parsed from the
+    # JDBC URL's userinfo instead (jdbc:postgresql://user:pass@host:port/db).
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/stock_predictor}
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  sql:
+    init:
+      mode: never
+
+app:
+  fmp:
+    api-key: test-key
+    base-url: http://localhost:9090
+  ml:
+    base-url: http://localhost:9091
+  ingestion:
+    cron: "-"
+    price-lookback-days: 30
+  prediction:
+    cron: "-"
+  accuracy:
+    cron: "-"

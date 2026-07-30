@@ -45,6 +45,15 @@ public class Prediction {
 	@Column(columnDefinition = "TEXT")
 	private String indicatorsJson;
 
+	@Column(name = "prediction_date")
+	private LocalDate predictionDate;
+
+	@Column(name = "model_accuracy", precision = 5, scale = 4)
+	private BigDecimal modelAccuracy;
+
+	@Column(name = "last_close_price", precision = 12, scale = 4)
+	private BigDecimal lastClosePrice;
+
 	protected Prediction() {
 	}
 
@@ -55,12 +64,28 @@ public class Prediction {
 			String reasoning,
 			LocalDate predictedForDate,
 			String indicatorsJson) {
+		this(ticker, predictedTrend, confidence, reasoning, predictedForDate, indicatorsJson, null, null, null);
+	}
+
+	public Prediction(
+			String ticker,
+			String predictedTrend,
+			BigDecimal confidence,
+			String reasoning,
+			LocalDate predictedForDate,
+			String indicatorsJson,
+			LocalDate predictionDate,
+			BigDecimal modelAccuracy,
+			BigDecimal lastClosePrice) {
 		this.ticker = ticker;
 		this.predictedTrend = predictedTrend;
 		this.confidence = confidence;
 		this.reasoning = reasoning;
 		this.predictedForDate = predictedForDate;
 		this.indicatorsJson = indicatorsJson;
+		this.predictionDate = predictionDate;
+		this.modelAccuracy = modelAccuracy;
+		this.lastClosePrice = lastClosePrice;
 		this.createdAt = Instant.now();
 	}
 
@@ -102,6 +127,18 @@ public class Prediction {
 
 	public String getIndicatorsJson() {
 		return indicatorsJson;
+	}
+
+	public LocalDate getPredictionDate() {
+		return predictionDate;
+	}
+
+	public BigDecimal getModelAccuracy() {
+		return modelAccuracy;
+	}
+
+	public BigDecimal getLastClosePrice() {
+		return lastClosePrice;
 	}
 
 	public void setActualTrend(String actualTrend) {
