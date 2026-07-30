@@ -4,6 +4,9 @@ import com.stock_predictor.common.IndicatorJsonCodec;
 import com.stock_predictor.common.ResourceNotFoundException;
 import com.stock_predictor.predictions.dto.AccuracyHistoryItem;
 import com.stock_predictor.predictions.dto.AccuracyResponse;
+import com.stock_predictor.predictions.dto.BatchPredictionRequest;
+import com.stock_predictor.predictions.dto.BatchPredictionResponse;
+import com.stock_predictor.predictions.dto.PredictionBatchItem;
 import com.stock_predictor.predictions.dto.PredictionDetailResponse;
 import com.stock_predictor.predictions.dto.TopPredictionResponse;
 import com.stock_predictor.predictions.entity.Prediction;
@@ -51,6 +54,29 @@ public class PredictionService {
 							prediction.getPredictedForDate());
 				})
 				.toList();
+	}
+
+	@Transactional
+	public BatchPredictionResponse saveBatch(BatchPredictionRequest request) {
+		List<Prediction> entities = request.predictions().stream()
+				.map(this::toEntity)
+				.toList();
+		predictionRepository.saveAll(entities);
+		return new BatchPredictionResponse(entities.size());
+	}
+
+	private Prediction toEntity(PredictionBatchItem item) {
+		String indicatorsJson = indicatorJsonCodec.toJson(indicatorJsonCodec.normalizeIndicators(item.features()));
+		return new Prediction(
+				normalizeTicker(item.ticker()),
+				item.predictedDirection(),
+				item.confidence(),
+				null,
+				item.targetDate(),
+				indicatorsJson,
+				item.predictionDate(),
+				item.modelAccuracy(),
+				item.lastClosePrice());
 	}
 
 	public PredictionDetailResponse getLatestPrediction(String ticker) {
