@@ -1,6 +1,5 @@
 package com.stock_predictor.ingestion.service;
 
-import com.stock_predictor.common.IndicatorJsonCodec;
 import com.stock_predictor.config.AppProperties;
 import com.stock_predictor.ingestion.fmp.FmpClient;
 import com.stock_predictor.ingestion.fmp.FmpPriceRecord;
@@ -34,7 +33,6 @@ public class IngestionService {
 	private final FmpClient fmpClient;
 	private final MlServiceClient mlServiceClient;
 	private final AppProperties appProperties;
-	private final IndicatorJsonCodec indicatorJsonCodec;
 
 	public IngestionService(
 			StockRepository stockRepository,
@@ -42,15 +40,13 @@ public class IngestionService {
 			PredictionRepository predictionRepository,
 			FmpClient fmpClient,
 			MlServiceClient mlServiceClient,
-			AppProperties appProperties,
-			IndicatorJsonCodec indicatorJsonCodec) {
+			AppProperties appProperties) {
 		this.stockRepository = stockRepository;
 		this.stockPriceRepository = stockPriceRepository;
 		this.predictionRepository = predictionRepository;
 		this.fmpClient = fmpClient;
 		this.mlServiceClient = mlServiceClient;
 		this.appProperties = appProperties;
-		this.indicatorJsonCodec = indicatorJsonCodec;
 	}
 
 	@Transactional
@@ -132,15 +128,17 @@ public class IngestionService {
 						.toList());
 
 		MlPredictResponse response = mlServiceClient.predict(request);
-		String indicatorsJson = indicatorJsonCodec.toJson(indicatorJsonCodec.normalizeIndicators(response.indicators()));
+		// response.indicators() isn't persisted: this live path's indicator set
+		// (e.g. sma5/sma20/rsi14) doesn't match the fixed feature columns the
+		// batch contract uses (moving_avg_short/long, volatility_20d, momentum_5d)
+		// -- see the architecture note in docs/API_FLOW.md.
 
 		predictionRepository.save(new Prediction(
 				ticker,
 				response.trend(),
 				response.confidence(),
 				response.reasoning(),
-				predictedForDate,
-				indicatorsJson));
+				predictedForDate));
 
 		log.info("Stored prediction for {} targeting {}", ticker, predictedForDate);
 	}
@@ -168,7 +166,6 @@ public class IngestionService {
 				targetPriceOpt.get().getClose());
 
 		prediction.setActualTrend(actualTrend);
-		prediction.setWasCorrect(prediction.getPredictedTrend().equals(actualTrend));
 		predictionRepository.save(prediction);
 
 		log.info(
