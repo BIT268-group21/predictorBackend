@@ -16,10 +16,20 @@ HTTP request
 Cross-cutting pieces that don't sit in that chain but touch every request:
 - `common/GlobalExceptionHandler.java` — `@RestControllerAdvice`, turns thrown exceptions into JSON `{"error": "..."}` responses. This is the single place all error responses come from.
 - `common/ApiError.java` — the error response shape (one field: `error`).
-- `common/IndicatorJsonCodec.java` — serializes/deserializes the `features`/indicators map to/from the `TEXT` column `predictions.indicators_json`. Also normalizes a couple of legacy key names (`sma_5` -> `sma5`, etc.) via `normalizeIndicatorKey()`.
 - `config/CorsConfig.java` — registers a global `CorsFilter` for `/api/**`, currently allowing only `GET`/`OPTIONS` (see the flag on the batch endpoint below).
 - `config/AppProperties.java` — typed binding of `app.*` in `application.yml` (`@ConfigurationProperties`).
 - `config/StockSeedData.java` — `CommandLineRunner`, runs once at startup (skipped under the `test` profile), inserts 10 hardcoded stocks into `stocks` if the table is empty.
+
+---
+
+## Schema (normalized to 3NF, 2026-07-30)
+
+All three tables have a single-column key (`ticker` for `stocks`; a surrogate `id` for `stock_prices`/`predictions`), so 2NF (no partial dependency on part of a composite key) is trivially satisfied everywhere. What actually needed fixing was `predictions`:
+
+- **1NF fix:** the four features from the Data Contract (`moving_avg_short`, `moving_avg_long`, `volatility_20d`, `momentum_5d`) used to be stored together as one JSON string in a single `indicators_json TEXT` column — not an atomic value. Each is now its own `NUMERIC` column on `predictions` (see `Prediction.java`), populated directly from the batch payload's `features` object (now a typed `PredictionFeatures` record, `predictions/dto/PredictionFeatures.java`, instead of a generic `Map<String, BigDecimal>`).
+- **3NF fix:** `was_correct` used to be a stored `BOOLEAN` column, but its value is always exactly `actual_trend.equals(predicted_trend)` — a transitive dependency on two other non-key columns, not an independent fact. It's now a computed method (`Prediction.getWasCorrect()`), not a persisted column; `AccuracyCheckJob` only sets `actual_trend`, and correctness is derived on read.
+
+`stocks` (`ticker` PK, `company_name`, `sector`) and `stock_prices` (surrogate `id` PK, unique on `ticker`+`price_date`, plain OHLCV columns) were already in 3NF — no changes needed there.
 
 ---
 
@@ -59,11 +69,11 @@ This is the only write endpoint and the only one with a request body, so it has 
 
 1. Spring deserializes the body into `BatchPredictionRequest` (`predictions/dto/BatchPredictionRequest.java`) — a `predictions: List<PredictionBatchItem>`.
    - **If the JSON is malformed or a field has the wrong type** (e.g. `confidence` sent as a string), deserialization throws `HttpMessageNotReadableException` before the controller method even runs -> caught by `GlobalExceptionHandler.handleUnreadable()` -> `400` with a message naming the underlying parse failure.
-2. Each `PredictionBatchItem` (`predictions/dto/PredictionBatchItem.java`) is Bean-Validation-checked (`@Valid` cascades into the list): `ticker` not blank, `predictionDate`/`targetDate` not null, `predictedDirection` must match `up|down`, `confidence`/`modelAccuracy` in `[0,1]`, `features` not null, `lastClosePrice` >= 0. Field names on the wire are snake_case via `@JsonProperty` (`prediction_date`, `target_date`, `predicted_direction`, `model_accuracy`, `last_close_price`) to match the Data Contract exactly, even though the Java fields are camelCase.
-   - **Any validation failure** -> `MethodArgumentNotValidException` -> `GlobalExceptionHandler.handleValidation()` -> `400` listing every failing field across every record in one message (e.g. `predictions[3].features: must not be null`).
+2. Each `PredictionBatchItem` (`predictions/dto/PredictionBatchItem.java`) is Bean-Validation-checked (`@Valid` cascades into the list): `ticker` not blank, `predictionDate`/`targetDate` not null, `predictedDirection` must match `up|down`, `confidence`/`modelAccuracy` in `[0,1]`, `features` not null (and `@Valid`-cascades one level further into `PredictionFeatures` — each of its 4 fields is individually `@NotNull`), `lastClosePrice` >= 0. Field names on the wire are snake_case via `@JsonProperty` (`prediction_date`, `target_date`, `predicted_direction`, `model_accuracy`, `last_close_price`, and inside `features`: `moving_avg_short`, `moving_avg_long`, `volatility_20d`, `momentum_5d`) to match the Data Contract exactly, even though the Java fields are camelCase.
+   - **Any validation failure** -> `MethodArgumentNotValidException` -> `GlobalExceptionHandler.handleValidation()` -> `400` listing every failing field across every record in one message (e.g. `predictions[3].features.momentum5d: must not be null`).
 3. Controller calls `PredictionService.saveBatch(request)` (`PredictionService.java:57`), annotated `@Transactional` (overriding the class-level `@Transactional(readOnly = true)`).
 4. Service maps each `PredictionBatchItem` -> `Prediction` entity via `toEntity()` (`PredictionService.java:65`):
-   - `features` map is normalized and JSON-encoded via `IndicatorJsonCodec` into `indicatorsJson`.
+   - Each of the 4 `features` fields maps straight to its own atomic column (`moving_avg_short`, `moving_avg_long`, `volatility_20d`, `momentum_5d` — see the Schema section above; no JSON encoding involved anymore).
    - `reasoning` is left `null` — this endpoint does **not** call an LLM; that happens elsewhere (or hasn't been built yet — see the architecture note below).
    - `target_date` from the contract maps to the entity's existing `predictedForDate` field/`predicted_for_date` column (no separate column was added for it).
 5. `PredictionRepository.saveAll(entities)` — all rows inserted in the single transaction from step 3; if anything fails partway, the whole batch rolls back.
@@ -105,7 +115,7 @@ This is the only write endpoint and the only one with a request body, so it has 
 Lives in the `stocks` package/URL space but delegates entirely to the `predictions` service:
 1. Controller calls `PredictionService.getLatestPrediction(ticker)` (`PredictionService.java:56`).
 2. `404` if the ticker isn't in `stocks`; **separately**, `404` if the ticker exists but has no prediction row yet (`PredictionRepository.findTopByTickerOrderByPredictedForDateDescCreatedAtDesc`).
-3. Maps to `PredictionDetailResponse` (`predictions/dto/PredictionDetailResponse.java`): `ticker, trend, confidence, reasoning, indicators` — `indicators` is the *decoded* `features`/indicators map (via `IndicatorJsonCodec.indicatorsFromJson()`), not the raw JSON string.
+3. Maps to `PredictionDetailResponse` (`predictions/dto/PredictionDetailResponse.java`): `ticker, trend, confidence, reasoning, indicators` — `indicators` is assembled from the 4 atomic feature columns (`PredictionService.toIndicatorsMap()`), skipping any that are `null` (e.g. for live-path predictions, which don't populate these — see the architecture note below).
 
 **Reads:** `stocks`, `predictions`. **Writes:** none.
 
@@ -119,13 +129,13 @@ All three are `@Scheduled` `@Component`s in `ingestion/job/`, each just calling 
 |---|---|---|---|
 | `DataIngestionJob` | `ingestion/job/DataIngestionJob.java` | `app.ingestion.cron` (default `0 0 18 * * *`) | `IngestionService.ingestPricesForAllStocks()` — pulls OHLCV from FMP (`ingestion/fmp/FmpClient.java`) for every stock, skips dates already present |
 | `PredictionJob` | `ingestion/job/PredictionJob.java` | `app.prediction.cron` (default `0 30 18 * * *`) | `IngestionService.generatePredictionsForAllStocks()` — see architecture note below |
-| `AccuracyCheckJob` | `ingestion/job/AccuracyCheckJob.java` | `app.accuracy.cron` (default `0 0 19 * * *`) | `IngestionService.evaluatePendingPredictions()` — for any prediction whose `predicted_for_date` has passed and isn't graded yet, compares the actual close price on that date vs. the prior day (`IngestionService.classifyTrend()`, `> 0.1%` move = up/down, else `flat`), sets `actual_trend`/`was_correct` |
+| `AccuracyCheckJob` | `ingestion/job/AccuracyCheckJob.java` | `app.accuracy.cron` (default `0 0 19 * * *`) | `IngestionService.evaluatePendingPredictions()` — for any prediction whose `predicted_for_date` has passed and isn't graded yet, compares the actual close price on that date vs. the prior day (`IngestionService.classifyTrend()`, `> 0.1%` move = up/down, else `flat`), sets `actual_trend` only — `was_correct` is no longer a stored column (3NF fix, see Schema section above); it's derived from `actual_trend`/`predicted_trend` at read time |
 
 ### ⚠ Architecture note worth flagging to the team
 
 `PredictionJob` / `IngestionService.generatePredictionForTicker()` (`ingestion/service/IngestionService.java:100`) calls `MlServiceClient.predict()` (`ingestion/ml/MlServiceClient.java`) **live, synchronously, from the backend**, to a configurable `ML_SERVICE_URL`. This is a *second, separate* code path into the `predictions` table alongside the new `POST /api/predictions/batch` endpoint (#3 above) — and it's the exact pattern the root `decisions.md` (Section 9, "Explicitly Rejected/Reconsidered Approaches") says was **rejected** in favor of the push-based batch model: *"Backend calling a live Python API ... rejected in favor of a push model (ML layer sends data outward)."*
 
-Both paths write to the same `predictions` table with mostly-compatible shapes (this session extended the `Prediction` entity so both constructors still work), so nothing is currently broken by having both — but if `PredictionJob`'s cron is ever enabled in a real environment where `ML_SERVICE_URL` points at something live, you'd get predictions arriving through two independent channels with different metadata (the live path doesn't set `prediction_date`, `model_accuracy`, or `last_close_price` — those stay `null`). Worth a decision with the team: is `PredictionJob`/`MlServiceClient`/`FmpClient`'s live-prediction path dead code to remove, or a real fallback path to keep documented as intentional?
+Both paths write to the same `predictions` table (this session extended the `Prediction` entity's constructor so both still compile), so nothing is currently broken by having both — but since the 2026-07-30 normalization, this gap is more visible than before: the live path's ML response includes its own `indicators` map (historically keys like `sma5`/`sma20`/`rsi14`), but that map is **no longer persisted at all** — it doesn't match the fixed `moving_avg_short`/`moving_avg_long`/`volatility_20d`/`momentum_5d` columns the batch contract defines, and there's no generic JSON column left to fall back to. Live-path predictions also never set `prediction_date`, `model_accuracy`, or `last_close_price` — all stay `null`. Worth a decision with the team: is `PredictionJob`/`MlServiceClient`/`FmpClient`'s live-prediction path dead code to remove, or a real fallback path worth reconciling with the batch contract's feature set?
 
 ---
 
@@ -133,7 +143,7 @@ Both paths write to the same `predictions` table with mostly-compatible shapes (
 
 ```
 src/main/java/com/stock_predictor/
-├── common/            ApiError, GlobalExceptionHandler, IndicatorJsonCodec, ResourceNotFoundException
+├── common/            ApiError, GlobalExceptionHandler, ResourceNotFoundException
 ├── config/            AppProperties, CorsConfig, RestClientConfig, StockSeedData
 ├── ingestion/
 │   ├── fmp/           FmpClient, FmpPriceRecord           (external price data source)
@@ -145,7 +155,7 @@ src/main/java/com/stock_predictor/
 │   ├── service/        PredictionService
 │   ├── repository/     PredictionRepository
 │   ├── entity/         Prediction
-│   └── dto/             BatchPredictionRequest, PredictionBatchItem, BatchPredictionResponse,
+│   └── dto/             BatchPredictionRequest, PredictionBatchItem, PredictionFeatures, BatchPredictionResponse,
 │                        TopPredictionResponse, PredictionDetailResponse, AccuracyResponse, AccuracyHistoryItem
 └── stocks/
     ├── controller/      StockController, StockPredictionController   (/api/stocks/*)

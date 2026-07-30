@@ -64,7 +64,13 @@ class PredictionControllerIntegrationTest {
 				new BigDecimal("0.720"),
 				"5-day average crossed above 20-day average",
 				today.plusDays(1),
-				"{\"sma5\":331.4,\"sma20\":328.1,\"rsi14\":61.2}"));
+				today,
+				new BigDecimal("0.75"),
+				new BigDecimal("331.4"),
+				new BigDecimal("328.1"),
+				new BigDecimal("0.021"),
+				new BigDecimal("0.015"),
+				new BigDecimal("330.0")));
 	}
 
 	@Test
@@ -83,7 +89,7 @@ class PredictionControllerIntegrationTest {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.ticker").value("AAPL"))
 				.andExpect(jsonPath("$.trend").value("up"))
-				.andExpect(jsonPath("$.indicators.sma5").value(331.4));
+				.andExpect(jsonPath("$.indicators.moving_avg_short").value(331.4));
 	}
 
 	@Test

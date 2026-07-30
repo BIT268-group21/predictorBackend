@@ -5,9 +5,9 @@ spring:
 
   datasource:
     # username/password intentionally omitted: Spring's property binding treats a
-    # whitespace-only password as unset, so credentials here are parsed from the
-    # JDBC URL's userinfo instead (jdbc:postgresql://user:pass@host:port/db).
-    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/stock_predictor}
+    # whitespace-only password as unset, so credentials here are passed as JDBC URL
+    # query params instead (pgjdbc doesn't support user:pass@host userinfo syntax).
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:3000/stock_predictor?schema=public&user=postgres&password=%20%20%20%20}
 
   jpa:
     hibernate:

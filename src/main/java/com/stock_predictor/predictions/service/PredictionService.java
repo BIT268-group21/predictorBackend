@@ -1,6 +1,5 @@
 package com.stock_predictor.predictions.service;
 
-import com.stock_predictor.common.IndicatorJsonCodec;
 import com.stock_predictor.common.ResourceNotFoundException;
 import com.stock_predictor.predictions.dto.AccuracyHistoryItem;
 import com.stock_predictor.predictions.dto.AccuracyResponse;
@@ -13,6 +12,8 @@ import com.stock_predictor.predictions.entity.Prediction;
 import com.stock_predictor.predictions.repository.PredictionRepository;
 import com.stock_predictor.stocks.entity.Stock;
 import com.stock_predictor.stocks.repository.StockRepository;
+import java.math.BigDecimal;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -25,15 +26,12 @@ public class PredictionService {
 
 	private final PredictionRepository predictionRepository;
 	private final StockRepository stockRepository;
-	private final IndicatorJsonCodec indicatorJsonCodec;
 
 	public PredictionService(
 			PredictionRepository predictionRepository,
-			StockRepository stockRepository,
-			IndicatorJsonCodec indicatorJsonCodec) {
+			StockRepository stockRepository) {
 		this.predictionRepository = predictionRepository;
 		this.stockRepository = stockRepository;
-		this.indicatorJsonCodec = indicatorJsonCodec;
 	}
 
 	public List<TopPredictionResponse> getTopPredictions(int limit) {
@@ -66,16 +64,18 @@ public class PredictionService {
 	}
 
 	private Prediction toEntity(PredictionBatchItem item) {
-		String indicatorsJson = indicatorJsonCodec.toJson(indicatorJsonCodec.normalizeIndicators(item.features()));
 		return new Prediction(
 				normalizeTicker(item.ticker()),
 				item.predictedDirection(),
 				item.confidence(),
 				null,
 				item.targetDate(),
-				indicatorsJson,
 				item.predictionDate(),
 				item.modelAccuracy(),
+				item.features().movingAvgShort(),
+				item.features().movingAvgLong(),
+				item.features().volatility20d(),
+				item.features().momentum5d(),
 				item.lastClosePrice());
 	}
 
@@ -122,7 +122,22 @@ public class PredictionService {
 				prediction.getPredictedTrend(),
 				prediction.getConfidence(),
 				prediction.getReasoning(),
-				indicatorJsonCodec.indicatorsFromJson(prediction.getIndicatorsJson()));
+				toIndicatorsMap(prediction));
+	}
+
+	private Map<String, BigDecimal> toIndicatorsMap(Prediction prediction) {
+		Map<String, BigDecimal> indicators = new LinkedHashMap<>();
+		putIfPresent(indicators, "moving_avg_short", prediction.getMovingAvgShort());
+		putIfPresent(indicators, "moving_avg_long", prediction.getMovingAvgLong());
+		putIfPresent(indicators, "volatility_20d", prediction.getVolatility20d());
+		putIfPresent(indicators, "momentum_5d", prediction.getMomentum5d());
+		return indicators;
+	}
+
+	private void putIfPresent(Map<String, BigDecimal> map, String key, BigDecimal value) {
+		if (value != null) {
+			map.put(key, value);
+		}
 	}
 
 	private String normalizeTicker(String ticker) {

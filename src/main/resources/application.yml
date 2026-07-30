@@ -6,7 +6,7 @@ spring:
     # username/password intentionally omitted here: Spring treats a whitespace-only
     # password as unset, so local credentials are passed as JDBC URL query params
     # instead (see the default below). Override DATABASE_URL entirely for other envs.
-    url: ${DATABASE_URL:jdbc:postgresql://localhost:3000/task_manager?schema=public&user=postgres&password=%20%20%20%20}
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:3000/stock_predictor?schema=public&user=postgres&password=%20%20%20%20}
 
   jpa:
     hibernate:

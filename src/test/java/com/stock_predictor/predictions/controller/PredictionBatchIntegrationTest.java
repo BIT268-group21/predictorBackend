@@ -25,11 +25,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Runs against a real local Postgres instance (see application-postgres-test.yml,
- * connection details read from backend-repo/.env). Validates that the
- * POST /api/predictions/batch endpoint honors the Section 3a data contract and
- * writes correctly to the predictions table — not a cross-machine test against the
- * ML teammate's actual batch job.
+ * Runs against a real local Postgres instance (see application-postgres-test.yml
+ * for the connection default, overridable via the DATABASE_URL env var).
+ * Validates that the POST /api/predictions/batch endpoint honors the Section 3a
+ * data contract and writes correctly to the (now-normalized, 3NF) predictions
+ * table — not a cross-machine test against the ML teammate's actual batch job.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -108,7 +108,14 @@ class PredictionBatchIntegrationTest {
 				0, new BigDecimal("171.85").compareTo(aapl.getLastClosePrice()));
 		org.junit.jupiter.api.Assertions.assertEquals(predictionDate, aapl.getPredictionDate());
 		org.junit.jupiter.api.Assertions.assertEquals(targetDate, aapl.getPredictedForDate());
-		org.junit.jupiter.api.Assertions.assertTrue(aapl.getIndicatorsJson().contains("moving_avg_short"));
+		org.junit.jupiter.api.Assertions.assertEquals(
+				0, new BigDecimal("172.3").compareTo(aapl.getMovingAvgShort()));
+		org.junit.jupiter.api.Assertions.assertEquals(
+				0, new BigDecimal("168.9").compareTo(aapl.getMovingAvgLong()));
+		org.junit.jupiter.api.Assertions.assertEquals(
+				0, new BigDecimal("0.021").compareTo(aapl.getVolatility20d()));
+		org.junit.jupiter.api.Assertions.assertEquals(
+				0, new BigDecimal("0.015").compareTo(aapl.getMomentum5d()));
 	}
 
 	@Test

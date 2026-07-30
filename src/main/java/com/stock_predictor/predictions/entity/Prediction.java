@@ -36,14 +36,8 @@ public class Prediction {
 	@Column(name = "actual_trend", length = 10)
 	private String actualTrend;
 
-	@Column(name = "was_correct")
-	private Boolean wasCorrect;
-
 	@Column(name = "created_at", nullable = false)
 	private Instant createdAt;
-
-	@Column(columnDefinition = "TEXT")
-	private String indicatorsJson;
 
 	@Column(name = "prediction_date")
 	private LocalDate predictionDate;
@@ -51,20 +45,38 @@ public class Prediction {
 	@Column(name = "model_accuracy", precision = 5, scale = 4)
 	private BigDecimal modelAccuracy;
 
+	// Atomic feature columns (1NF) -- previously stored together as one JSON
+	// blob in a single TEXT column, which isn't a single indivisible value.
+	// Exactly these four, named, are what the Data Contract (decisions.md
+	// Section 3a) actually sends per prediction, so they're modeled as real
+	// columns rather than a generic/open-ended map.
+	@Column(name = "moving_avg_short", precision = 12, scale = 4)
+	private BigDecimal movingAvgShort;
+
+	@Column(name = "moving_avg_long", precision = 12, scale = 4)
+	private BigDecimal movingAvgLong;
+
+	@Column(name = "volatility_20d", precision = 8, scale = 4)
+	private BigDecimal volatility20d;
+
+	@Column(name = "momentum_5d", precision = 8, scale = 4)
+	private BigDecimal momentum5d;
+
 	@Column(name = "last_close_price", precision = 12, scale = 4)
 	private BigDecimal lastClosePrice;
 
 	protected Prediction() {
 	}
 
+	/** Live-generation path (no batch-only fields: prediction_date, model_accuracy, features, last_close_price). */
 	public Prediction(
 			String ticker,
 			String predictedTrend,
 			BigDecimal confidence,
 			String reasoning,
-			LocalDate predictedForDate,
-			String indicatorsJson) {
-		this(ticker, predictedTrend, confidence, reasoning, predictedForDate, indicatorsJson, null, null, null);
+			LocalDate predictedForDate) {
+		this(ticker, predictedTrend, confidence, reasoning, predictedForDate,
+				null, null, null, null, null, null, null);
 	}
 
 	public Prediction(
@@ -73,18 +85,24 @@ public class Prediction {
 			BigDecimal confidence,
 			String reasoning,
 			LocalDate predictedForDate,
-			String indicatorsJson,
 			LocalDate predictionDate,
 			BigDecimal modelAccuracy,
+			BigDecimal movingAvgShort,
+			BigDecimal movingAvgLong,
+			BigDecimal volatility20d,
+			BigDecimal momentum5d,
 			BigDecimal lastClosePrice) {
 		this.ticker = ticker;
 		this.predictedTrend = predictedTrend;
 		this.confidence = confidence;
 		this.reasoning = reasoning;
 		this.predictedForDate = predictedForDate;
-		this.indicatorsJson = indicatorsJson;
 		this.predictionDate = predictionDate;
 		this.modelAccuracy = modelAccuracy;
+		this.movingAvgShort = movingAvgShort;
+		this.movingAvgLong = movingAvgLong;
+		this.volatility20d = volatility20d;
+		this.momentum5d = momentum5d;
 		this.lastClosePrice = lastClosePrice;
 		this.createdAt = Instant.now();
 	}
@@ -117,16 +135,20 @@ public class Prediction {
 		return actualTrend;
 	}
 
+	/**
+	 * Not a stored column (3NF -- this is fully determined by predictedTrend and
+	 * actualTrend, so persisting it separately would be a transitive dependency /
+	 * redundant, derivable data). Null until actualTrend is graded.
+	 */
 	public Boolean getWasCorrect() {
-		return wasCorrect;
+		if (actualTrend == null) {
+			return null;
+		}
+		return actualTrend.equals(predictedTrend);
 	}
 
 	public Instant getCreatedAt() {
 		return createdAt;
-	}
-
-	public String getIndicatorsJson() {
-		return indicatorsJson;
 	}
 
 	public LocalDate getPredictionDate() {
@@ -137,15 +159,27 @@ public class Prediction {
 		return modelAccuracy;
 	}
 
+	public BigDecimal getMovingAvgShort() {
+		return movingAvgShort;
+	}
+
+	public BigDecimal getMovingAvgLong() {
+		return movingAvgLong;
+	}
+
+	public BigDecimal getVolatility20d() {
+		return volatility20d;
+	}
+
+	public BigDecimal getMomentum5d() {
+		return momentum5d;
+	}
+
 	public BigDecimal getLastClosePrice() {
 		return lastClosePrice;
 	}
 
 	public void setActualTrend(String actualTrend) {
 		this.actualTrend = actualTrend;
-	}
-
-	public void setWasCorrect(Boolean wasCorrect) {
-		this.wasCorrect = wasCorrect;
 	}
 }

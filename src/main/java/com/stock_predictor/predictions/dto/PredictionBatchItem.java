@@ -1,5 +1,6 @@
 package com.stock_predictor.predictions.dto;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
@@ -7,7 +8,6 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.Map;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
@@ -21,6 +21,6 @@ public record PredictionBatchItem(
 				@Pattern(regexp = "up|down", message = "must be 'up' or 'down'") String predictedDirection,
 		@NotNull @DecimalMin("0.0") @DecimalMax("1.0") BigDecimal confidence,
 		@JsonProperty("model_accuracy") @NotNull @DecimalMin("0.0") @DecimalMax("1.0") BigDecimal modelAccuracy,
-		@NotNull Map<String, BigDecimal> features,
+		@Valid @NotNull PredictionFeatures features,
 		@JsonProperty("last_close_price") @NotNull @DecimalMin("0.0") BigDecimal lastClosePrice) {
 }

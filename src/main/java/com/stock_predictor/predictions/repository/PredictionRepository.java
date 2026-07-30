@@ -30,8 +30,4 @@ public interface PredictionRepository extends JpaRepository<Prediction, Long> {
 			ORDER BY p.confidence DESC, p.createdAt DESC
 			""")
 	List<Prediction> findLatestPerTicker();
-
-	long countByTickerAndWasCorrectIsTrue(String ticker);
-
-	long countByTickerAndWasCorrectIsNotNull(String ticker);
 }
