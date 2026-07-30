@@ -1,0 +1,290 @@
+{
+  "info": {
+    "name": "Trading Backend (Group 21)",
+    "description": "Endpoints for the Spring Boot trading backend (BUILD_SPEC §6).\n\nRun `Auth / Register` or `Auth / Login` first — a test script stores the JWT in the `token` collection variable, and every protected request picks it up automatically.\n\nVariables:\n- `baseUrl` — http://localhost:8080 by default\n- `token` — filled in by Register/Login\n- `ticker` — symbol used by the stock/prediction requests\n- `alertId` — filled in by `Alerts / Create alert`",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "token", "value": "" },
+    { "key": "ticker", "value": "AAPL" },
+    { "key": "alertId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register (201, auto-login)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('token', body.token);",
+                  "pm.test('returns a bearer token', () => {",
+                  "    pm.expect(body.token).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.tokenType).to.eql('Bearer');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/auth/register", "host": ["{{baseUrl}}"], "path": ["api", "auth", "register"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"trader\",\n  \"email\": \"trader@example.com\",\n  \"password\": \"supersecret\"\n}"
+            },
+            "description": "Creates the account and logs in immediately. Email must be unique (409 otherwise); password must be at least 8 characters (400 otherwise)."
+          }
+        },
+        {
+          "name": "Login (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('token', pm.response.json().token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"trader@example.com\",\n  \"password\": \"supersecret\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Current user",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/me", "host": ["{{baseUrl}}"], "path": ["api", "me"] },
+            "description": "Requires a JWT. Returns { id, username, email, role }."
+          }
+        },
+        {
+          "name": "Login with wrong password (401)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] },
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"trader@example.com\",\n  \"password\": \"wrong-password\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Stocks (public)",
+      "item": [
+        {
+          "name": "List stocks",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/stocks", "host": ["{{baseUrl}}"], "path": ["api", "stocks"] },
+            "description": "Curated catalog of { ticker, name }. No account needed."
+          }
+        },
+        {
+          "name": "Price history",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/stocks/{{ticker}}/history?limit=60",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "stocks", "{{ticker}}", "history"],
+              "query": [{ "key": "limit", "value": "60" }]
+            },
+            "description": "Proxies the predictor's adjusted OHLCV, oldest→newest. 404 if the ticker has no data."
+          }
+        },
+        {
+          "name": "Unknown ticker (404)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/stocks/NOTREAL/history",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "stocks", "NOTREAL", "history"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Predictions",
+      "item": [
+        {
+          "name": "Predict (anonymous)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.test('is a PredictionResult', () => {",
+                  "    pm.expect(b.trend).to.be.oneOf(['BULLISH', 'BEARISH', 'UNKNOWN']);",
+                  "    pm.expect(b.confidence).to.be.a('number');",
+                  "    pm.expect(b.horizonDays).to.be.a('number');",
+                  "    pm.expect(b.detectedPatterns).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/predict/{{ticker}}", "host": ["{{baseUrl}}"], "path": ["api", "predict", "{{ticker}}"] },
+            "description": "Public. First call after the predictor has been idle can take 30-60s (free-tier cold start) — raise Postman's timeout if needed. Not saved to any history."
+          }
+        },
+        {
+          "name": "Predict (logged in — saves to history)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/predict/MSFT", "host": ["{{baseUrl}}"], "path": ["api", "predict", "MSFT"] },
+            "description": "Same endpoint, but with a JWT the result is written to the caller's prediction history."
+          }
+        },
+        {
+          "name": "My prediction history",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/predictions/history", "host": ["{{baseUrl}}"], "path": ["api", "predictions", "history"] },
+            "description": "Newest first. Only ever the caller's own rows."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Watchlist",
+      "item": [
+        {
+          "name": "List watchlist",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/watchlist", "host": ["{{baseUrl}}"], "path": ["api", "watchlist"] }
+          }
+        },
+        {
+          "name": "Add ticker (201)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/watchlist", "host": ["{{baseUrl}}"], "path": ["api", "watchlist"] },
+            "body": { "mode": "raw", "raw": "{\n  \"ticker\": \"AAPL\"\n}" },
+            "description": "Tickers are uppercased and trimmed. Adding the same one twice returns 409."
+          }
+        },
+        {
+          "name": "Add duplicate (409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/watchlist", "host": ["{{baseUrl}}"], "path": ["api", "watchlist"] },
+            "body": { "mode": "raw", "raw": "{\n  \"ticker\": \"aapl\"\n}" }
+          }
+        },
+        {
+          "name": "Remove ticker (204)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/watchlist/AAPL", "host": ["{{baseUrl}}"], "path": ["api", "watchlist", "AAPL"] }
+          }
+        },
+        {
+          "name": "Without a token (401)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/watchlist", "host": ["{{baseUrl}}"], "path": ["api", "watchlist"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Alerts",
+      "item": [
+        {
+          "name": "Create alert (201)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('alertId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/alerts", "host": ["{{baseUrl}}"], "path": ["api", "alerts"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ticker\": \"AAPL\",\n  \"targetPrice\": 250.00,\n  \"direction\": \"ABOVE\"\n}"
+            },
+            "description": "direction is ABOVE or BELOW. A background checker compares the latest close against the target every few minutes and flips `triggered` — set targetPrice below the current price to watch it fire."
+          }
+        },
+        {
+          "name": "List alerts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/alerts", "host": ["{{baseUrl}}"], "path": ["api", "alerts"] },
+            "description": "Check `triggered` / `triggeredAt` here after the scheduled check runs."
+          }
+        },
+        {
+          "name": "Delete alert (204)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/alerts/{{alertId}}", "host": ["{{baseUrl}}"], "path": ["api", "alerts", "{{alertId}}"] },
+            "description": "Only the owner's alert; someone else's id returns 404."
+          }
+        }
+      ]
+    }
+  ]
+}

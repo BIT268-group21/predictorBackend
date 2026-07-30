@@ -1,35 +1,32 @@
 spring:
-  task:
-    scheduling:
-      enabled: false
-
   datasource:
-    url: jdbc:h2:mem:stock_predictor;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    url: jdbc:h2:mem:trading;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
     username: sa
     password:
     driver-class-name: org.h2.Driver
-
   jpa:
     hibernate:
       ddl-auto: create-drop
+    open-in-view: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.H2Dialect
-
   sql:
     init:
       mode: never
 
-app:
-  fmp:
-    api-key: test-key
-    base-url: http://localhost:9090
-  ml:
-    base-url: http://localhost:9091
-  ingestion:
-    cron: "-"
-    price-lookback-days: 30
-  prediction:
-    cron: "-"
-  accuracy:
-    cron: "-"
+# The predictor is always mocked in tests; the URL only has to be parseable.
+predictor:
+  base-url: http://localhost:9999
+  api-key: test-key
+
+security:
+  jwt:
+    secret: test-secret-key-that-is-at-least-32-bytes-long
+    expiration-ms: 3600000
+
+cors:
+  allowed-origins: http://localhost:3000
+
+scheduling:
+  enabled: false
