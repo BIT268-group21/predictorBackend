@@ -7,6 +7,8 @@ import com.stock_predictor.ingestion.ml.MlPredictRequest;
 import com.stock_predictor.ingestion.ml.MlPredictResponse;
 import com.stock_predictor.ingestion.ml.MlServiceClient;
 import com.stock_predictor.predictions.entity.Prediction;
+import com.stock_predictor.predictions.entity.PredictionFeature;
+import com.stock_predictor.predictions.repository.PredictionFeatureRepository;
 import com.stock_predictor.predictions.repository.PredictionRepository;
 import com.stock_predictor.stocks.entity.Stock;
 import com.stock_predictor.stocks.entity.StockPrice;
@@ -30,6 +32,7 @@ public class IngestionService {
 	private final StockRepository stockRepository;
 	private final StockPriceRepository stockPriceRepository;
 	private final PredictionRepository predictionRepository;
+	private final PredictionFeatureRepository predictionFeatureRepository;
 	private final FmpClient fmpClient;
 	private final MlServiceClient mlServiceClient;
 	private final AppProperties appProperties;
@@ -38,12 +41,14 @@ public class IngestionService {
 			StockRepository stockRepository,
 			StockPriceRepository stockPriceRepository,
 			PredictionRepository predictionRepository,
+			PredictionFeatureRepository predictionFeatureRepository,
 			FmpClient fmpClient,
 			MlServiceClient mlServiceClient,
 			AppProperties appProperties) {
 		this.stockRepository = stockRepository;
 		this.stockPriceRepository = stockPriceRepository;
 		this.predictionRepository = predictionRepository;
+		this.predictionFeatureRepository = predictionFeatureRepository;
 		this.fmpClient = fmpClient;
 		this.mlServiceClient = mlServiceClient;
 		this.appProperties = appProperties;
@@ -128,17 +133,16 @@ public class IngestionService {
 						.toList());
 
 		MlPredictResponse response = mlServiceClient.predict(request);
-		// response.indicators() isn't persisted: this live path's indicator set
-		// (e.g. sma5/sma20/rsi14) doesn't match the fixed feature columns the
-		// batch contract uses (moving_avg_short/long, volatility_20d, momentum_5d)
-		// -- see the architecture note in docs/API_FLOW.md.
 
-		predictionRepository.save(new Prediction(
+		Prediction prediction = predictionRepository.save(new Prediction(
 				ticker,
 				response.trend(),
 				response.confidence(),
 				response.reasoning(),
 				predictedForDate));
+
+		response.indicators().forEach((name, value) ->
+				predictionFeatureRepository.save(new PredictionFeature(prediction, name, value)));
 
 		log.info("Stored prediction for {} targeting {}", ticker, predictedForDate);
 	}

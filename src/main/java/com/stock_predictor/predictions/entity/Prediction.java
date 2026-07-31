@@ -45,38 +45,28 @@ public class Prediction {
 	@Column(name = "model_accuracy", precision = 5, scale = 4)
 	private BigDecimal modelAccuracy;
 
-	// Atomic feature columns (1NF) -- previously stored together as one JSON
-	// blob in a single TEXT column, which isn't a single indivisible value.
-	// Exactly these four, named, are what the Data Contract (decisions.md
-	// Section 3a) actually sends per prediction, so they're modeled as real
-	// columns rather than a generic/open-ended map.
-	@Column(name = "moving_avg_short", precision = 12, scale = 4)
-	private BigDecimal movingAvgShort;
-
-	@Column(name = "moving_avg_long", precision = 12, scale = 4)
-	private BigDecimal movingAvgLong;
-
-	@Column(name = "volatility_20d", precision = 8, scale = 4)
-	private BigDecimal volatility20d;
-
-	@Column(name = "momentum_5d", precision = 8, scale = 4)
-	private BigDecimal momentum5d;
-
 	@Column(name = "last_close_price", precision = 12, scale = 4)
 	private BigDecimal lastClosePrice;
+
+	// Named feature values (moving_avg_short, lag_return_1, etc.) live in the
+	// child table `prediction_features` (see PredictionFeature), one row per
+	// feature per prediction -- NOT columns here. The ML pipeline does per-stock
+	// correlation-based feature selection, so the set of feature names differs
+	// per stock and isn't fixed; fixed columns (or a JSON blob) can't represent
+	// that without either losing data or violating 1NF again. See decisions.md
+	// Section 3a/10/14.
 
 	protected Prediction() {
 	}
 
-	/** Live-generation path (no batch-only fields: prediction_date, model_accuracy, features, last_close_price). */
+	/** Live-generation path (no batch-only fields: prediction_date, model_accuracy, last_close_price). */
 	public Prediction(
 			String ticker,
 			String predictedTrend,
 			BigDecimal confidence,
 			String reasoning,
 			LocalDate predictedForDate) {
-		this(ticker, predictedTrend, confidence, reasoning, predictedForDate,
-				null, null, null, null, null, null, null);
+		this(ticker, predictedTrend, confidence, reasoning, predictedForDate, null, null, null);
 	}
 
 	public Prediction(
@@ -87,10 +77,6 @@ public class Prediction {
 			LocalDate predictedForDate,
 			LocalDate predictionDate,
 			BigDecimal modelAccuracy,
-			BigDecimal movingAvgShort,
-			BigDecimal movingAvgLong,
-			BigDecimal volatility20d,
-			BigDecimal momentum5d,
 			BigDecimal lastClosePrice) {
 		this.ticker = ticker;
 		this.predictedTrend = predictedTrend;
@@ -99,10 +85,6 @@ public class Prediction {
 		this.predictedForDate = predictedForDate;
 		this.predictionDate = predictionDate;
 		this.modelAccuracy = modelAccuracy;
-		this.movingAvgShort = movingAvgShort;
-		this.movingAvgLong = movingAvgLong;
-		this.volatility20d = volatility20d;
-		this.momentum5d = momentum5d;
 		this.lastClosePrice = lastClosePrice;
 		this.createdAt = Instant.now();
 	}
@@ -157,22 +139,6 @@ public class Prediction {
 
 	public BigDecimal getModelAccuracy() {
 		return modelAccuracy;
-	}
-
-	public BigDecimal getMovingAvgShort() {
-		return movingAvgShort;
-	}
-
-	public BigDecimal getMovingAvgLong() {
-		return movingAvgLong;
-	}
-
-	public BigDecimal getVolatility20d() {
-		return volatility20d;
-	}
-
-	public BigDecimal getMomentum5d() {
-		return momentum5d;
 	}
 
 	public BigDecimal getLastClosePrice() {

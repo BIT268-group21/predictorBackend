@@ -9,10 +9,13 @@ import com.stock_predictor.predictions.dto.PredictionBatchItem;
 import com.stock_predictor.predictions.dto.PredictionDetailResponse;
 import com.stock_predictor.predictions.dto.TopPredictionResponse;
 import com.stock_predictor.predictions.entity.Prediction;
+import com.stock_predictor.predictions.entity.PredictionFeature;
+import com.stock_predictor.predictions.repository.PredictionFeatureRepository;
 import com.stock_predictor.predictions.repository.PredictionRepository;
 import com.stock_predictor.stocks.entity.Stock;
 import com.stock_predictor.stocks.repository.StockRepository;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,12 +28,15 @@ import org.springframework.transaction.annotation.Transactional;
 public class PredictionService {
 
 	private final PredictionRepository predictionRepository;
+	private final PredictionFeatureRepository predictionFeatureRepository;
 	private final StockRepository stockRepository;
 
 	public PredictionService(
 			PredictionRepository predictionRepository,
+			PredictionFeatureRepository predictionFeatureRepository,
 			StockRepository stockRepository) {
 		this.predictionRepository = predictionRepository;
+		this.predictionFeatureRepository = predictionFeatureRepository;
 		this.stockRepository = stockRepository;
 	}
 
@@ -56,10 +62,18 @@ public class PredictionService {
 
 	@Transactional
 	public BatchPredictionResponse saveBatch(BatchPredictionRequest request) {
-		List<Prediction> entities = request.predictions().stream()
-				.map(this::toEntity)
-				.toList();
-		predictionRepository.saveAll(entities);
+		List<PredictionBatchItem> items = request.predictions();
+		List<Prediction> entities = items.stream().map(this::toEntity).toList();
+		predictionRepository.saveAll(entities); // populates generated IDs, needed below
+
+		List<PredictionFeature> featureRows = new ArrayList<>();
+		for (int i = 0; i < items.size(); i++) {
+			Prediction saved = entities.get(i);
+			items.get(i).features().forEach(
+					(name, value) -> featureRows.add(new PredictionFeature(saved, name, value)));
+		}
+		predictionFeatureRepository.saveAll(featureRows);
+
 		return new BatchPredictionResponse(entities.size());
 	}
 
@@ -72,10 +86,6 @@ public class PredictionService {
 				item.targetDate(),
 				item.predictionDate(),
 				item.modelAccuracy(),
-				item.features().movingAvgShort(),
-				item.features().movingAvgLong(),
-				item.features().volatility20d(),
-				item.features().momentum5d(),
 				item.lastClosePrice());
 	}
 
@@ -127,17 +137,10 @@ public class PredictionService {
 
 	private Map<String, BigDecimal> toIndicatorsMap(Prediction prediction) {
 		Map<String, BigDecimal> indicators = new LinkedHashMap<>();
-		putIfPresent(indicators, "moving_avg_short", prediction.getMovingAvgShort());
-		putIfPresent(indicators, "moving_avg_long", prediction.getMovingAvgLong());
-		putIfPresent(indicators, "volatility_20d", prediction.getVolatility20d());
-		putIfPresent(indicators, "momentum_5d", prediction.getMomentum5d());
-		return indicators;
-	}
-
-	private void putIfPresent(Map<String, BigDecimal> map, String key, BigDecimal value) {
-		if (value != null) {
-			map.put(key, value);
+		for (PredictionFeature feature : predictionFeatureRepository.findByPredictionId(prediction.getId())) {
+			indicators.put(feature.getFeatureName(), feature.getFeatureValue());
 		}
+		return indicators;
 	}
 
 	private String normalizeTicker(String ticker) {

@@ -5,6 +5,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.stock_predictor.predictions.entity.PredictionFeature;
+import com.stock_predictor.predictions.repository.PredictionFeatureRepository;
 import com.stock_predictor.predictions.repository.PredictionRepository;
 import com.stock_predictor.stocks.repository.StockPriceRepository;
 import com.stock_predictor.stocks.repository.StockRepository;
@@ -28,8 +30,9 @@ import tools.jackson.databind.json.JsonMapper;
  * Runs against a real local Postgres instance (see application-postgres-test.yml
  * for the connection default, overridable via the DATABASE_URL env var).
  * Validates that the POST /api/predictions/batch endpoint honors the Section 3a
- * data contract and writes correctly to the (now-normalized, 3NF) predictions
- * table — not a cross-machine test against the ML teammate's actual batch job.
+ * data contract and writes correctly to the normalized (3NF) predictions /
+ * prediction_features tables — not a cross-machine test against the ML
+ * teammate's actual batch job.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -54,6 +57,9 @@ class PredictionBatchIntegrationTest {
 	private PredictionRepository predictionRepository;
 
 	@Autowired
+	private PredictionFeatureRepository predictionFeatureRepository;
+
+	@Autowired
 	private StockPriceRepository stockPriceRepository;
 
 	@Autowired
@@ -61,6 +67,7 @@ class PredictionBatchIntegrationTest {
 
 	@BeforeEach
 	void cleanSlate() {
+		predictionFeatureRepository.deleteAll();
 		predictionRepository.deleteAll();
 		stockPriceRepository.deleteAll();
 		stockRepository.deleteAll();
@@ -68,6 +75,7 @@ class PredictionBatchIntegrationTest {
 
 	@AfterEach
 	void cleanUp() {
+		predictionFeatureRepository.deleteAll();
 		predictionRepository.deleteAll();
 		stockPriceRepository.deleteAll();
 		stockRepository.deleteAll();
@@ -108,14 +116,81 @@ class PredictionBatchIntegrationTest {
 				0, new BigDecimal("171.85").compareTo(aapl.getLastClosePrice()));
 		org.junit.jupiter.api.Assertions.assertEquals(predictionDate, aapl.getPredictionDate());
 		org.junit.jupiter.api.Assertions.assertEquals(targetDate, aapl.getPredictedForDate());
+
+		Map<String, BigDecimal> aaplFeatures = predictionFeatureRepository.findByPredictionId(aapl.getId()).stream()
+				.collect(java.util.stream.Collectors.toMap(
+						PredictionFeature::getFeatureName, PredictionFeature::getFeatureValue));
+		org.junit.jupiter.api.Assertions.assertEquals(4, aaplFeatures.size());
 		org.junit.jupiter.api.Assertions.assertEquals(
-				0, new BigDecimal("172.3").compareTo(aapl.getMovingAvgShort()));
+				0, new BigDecimal("172.3").compareTo(aaplFeatures.get("moving_avg_short")));
 		org.junit.jupiter.api.Assertions.assertEquals(
-				0, new BigDecimal("168.9").compareTo(aapl.getMovingAvgLong()));
+				0, new BigDecimal("168.9").compareTo(aaplFeatures.get("moving_avg_long")));
 		org.junit.jupiter.api.Assertions.assertEquals(
-				0, new BigDecimal("0.021").compareTo(aapl.getVolatility20d()));
+				0, new BigDecimal("0.021").compareTo(aaplFeatures.get("volatility_20d")));
 		org.junit.jupiter.api.Assertions.assertEquals(
-				0, new BigDecimal("0.015").compareTo(aapl.getMomentum5d()));
+				0, new BigDecimal("0.015").compareTo(aaplFeatures.get("momentum_5d")));
+	}
+
+	@Test
+	void differentTickersCanHaveDifferentFeatureNamesAndCounts() throws Exception {
+		// Mirrors the real ML pipeline (decisions.md Section 14): per-stock
+		// correlation-based feature selection means each stock's `features`
+		// object can have different keys and even a different count of keys --
+		// not a fixed schema. This is exactly what the prediction_features
+		// child table (vs. fixed columns) exists to support.
+		LocalDate predictionDate = LocalDate.of(2026, 7, 20);
+		LocalDate targetDate = LocalDate.of(2026, 7, 21);
+
+		Map<String, Object> aaplItem = baseItem("AAPL", predictionDate, targetDate);
+		aaplItem.put("features", Map.of(
+				"volatility_7", 0.018,
+				"price_vs_ma7", 0.012,
+				"lag_return_1", -0.004,
+				"ma_diff", 1.35,
+				"lag_return_2", 0.007));
+
+		Map<String, Object> jpmItem = baseItem("JPM", predictionDate, targetDate);
+		jpmItem.put("features", Map.of(
+				"momentum_5", 0.021,
+				"volume_change", 0.15,
+				"price_vs_ma30", -0.03));
+
+		String body = jsonMapper.writeValueAsString(Map.of("predictions", List.of(aaplItem, jpmItem)));
+
+		mockMvc.perform(post("/api/predictions/batch")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(body))
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.saved").value(2));
+
+		var stored = predictionRepository.findAll();
+		var aapl = stored.stream().filter(p -> p.getTicker().equals("AAPL")).findFirst().orElseThrow();
+		var jpm = stored.stream().filter(p -> p.getTicker().equals("JPM")).findFirst().orElseThrow();
+
+		var aaplFeatureNames = predictionFeatureRepository.findByPredictionId(aapl.getId()).stream()
+				.map(PredictionFeature::getFeatureName)
+				.collect(java.util.stream.Collectors.toSet());
+		var jpmFeatureNames = predictionFeatureRepository.findByPredictionId(jpm.getId()).stream()
+				.map(PredictionFeature::getFeatureName)
+				.collect(java.util.stream.Collectors.toSet());
+
+		org.junit.jupiter.api.Assertions.assertEquals(5, aaplFeatureNames.size());
+		org.junit.jupiter.api.Assertions.assertEquals(3, jpmFeatureNames.size());
+		org.junit.jupiter.api.Assertions.assertTrue(aaplFeatureNames.contains("ma_diff"));
+		org.junit.jupiter.api.Assertions.assertTrue(jpmFeatureNames.contains("volume_change"));
+		org.junit.jupiter.api.Assertions.assertTrue(java.util.Collections.disjoint(aaplFeatureNames, jpmFeatureNames));
+	}
+
+	private Map<String, Object> baseItem(String ticker, LocalDate predictionDate, LocalDate targetDate) {
+		Map<String, Object> item = new LinkedHashMap<>();
+		item.put("ticker", ticker);
+		item.put("prediction_date", predictionDate.toString());
+		item.put("target_date", targetDate.toString());
+		item.put("predicted_direction", "up");
+		item.put("confidence", 0.63);
+		item.put("model_accuracy", 0.72);
+		item.put("last_close_price", 171.85);
+		return item;
 	}
 
 	@Test

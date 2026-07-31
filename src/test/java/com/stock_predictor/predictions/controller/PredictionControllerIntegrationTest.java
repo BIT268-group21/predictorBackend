@@ -5,6 +5,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.stock_predictor.predictions.entity.Prediction;
+import com.stock_predictor.predictions.entity.PredictionFeature;
+import com.stock_predictor.predictions.repository.PredictionFeatureRepository;
 import com.stock_predictor.predictions.repository.PredictionRepository;
 import com.stock_predictor.stocks.entity.Stock;
 import com.stock_predictor.stocks.entity.StockPrice;
@@ -37,8 +39,12 @@ class PredictionControllerIntegrationTest {
 	@Autowired
 	private PredictionRepository predictionRepository;
 
+	@Autowired
+	private PredictionFeatureRepository predictionFeatureRepository;
+
 	@BeforeEach
 	void setUp() {
+		predictionFeatureRepository.deleteAll();
 		predictionRepository.deleteAll();
 		stockPriceRepository.deleteAll();
 		stockRepository.deleteAll();
@@ -58,7 +64,7 @@ class PredictionControllerIntegrationTest {
 					1_000_000L));
 		}
 
-		predictionRepository.save(new Prediction(
+		Prediction prediction = predictionRepository.save(new Prediction(
 				"AAPL",
 				"up",
 				new BigDecimal("0.720"),
@@ -66,11 +72,11 @@ class PredictionControllerIntegrationTest {
 				today.plusDays(1),
 				today,
 				new BigDecimal("0.75"),
-				new BigDecimal("331.4"),
-				new BigDecimal("328.1"),
-				new BigDecimal("0.021"),
-				new BigDecimal("0.015"),
 				new BigDecimal("330.0")));
+		predictionFeatureRepository.save(
+				new PredictionFeature(prediction, "moving_avg_short", new BigDecimal("331.4")));
+		predictionFeatureRepository.save(
+				new PredictionFeature(prediction, "moving_avg_long", new BigDecimal("328.1")));
 	}
 
 	@Test
