@@ -85,8 +85,10 @@ public class IngestionService {
 	private void evaluatePrediction(Prediction prediction) {
 		LocalDate targetDate = prediction.getPredictedForDate();
 		var targetPriceOpt = stockPriceRepository.findByTickerAndPriceDate(prediction.getTicker(), targetDate);
-		var priorPriceOpt = stockPriceRepository.findByTickerAndPriceDate(
-				prediction.getTicker(), targetDate.minusDays(1));
+		// Most recent trading day strictly before the target (the ML pipeline's naive
+		// next-trading-day can land on a Monday, where minusDays(1) would be a Sunday).
+		var priorPriceOpt = stockPriceRepository.findTopByTickerAndPriceDateLessThanOrderByPriceDateDesc(
+				prediction.getTicker(), targetDate);
 
 		if (targetPriceOpt.isEmpty() || priorPriceOpt.isEmpty()) {
 			return;

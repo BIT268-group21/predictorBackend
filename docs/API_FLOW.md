@@ -18,7 +18,7 @@ Cross-cutting pieces that don't sit in that chain but touch every request:
 - `common/ApiError.java` — the error response shape (one field: `error`).
 - `config/CorsConfig.java` — registers a global `CorsFilter` for `/api/**`, currently allowing only `GET`/`OPTIONS` (see the flag on the batch endpoint below).
 - `config/AppProperties.java` — typed binding of `app.*` in `application.yml` (`@ConfigurationProperties`).
-- `config/StockSeedData.java` — `CommandLineRunner`, runs once at startup (skipped under the `test` profile), inserts 10 hardcoded stocks into `stocks` if the table is empty.
+- `config/StockSeedData.java` — `CommandLineRunner`, runs once at startup (skipped under the `test` profile), inserts 50 hardcoded stocks into `stocks` if the table is empty (mirrors the ML pipeline's 50-ticker universe).
 
 ---
 

@@ -24,7 +24,7 @@ public class Prediction {
 	@Column(name = "predicted_trend", length = 10, nullable = false)
 	private String predictedTrend;
 
-	@Column(nullable = false, precision = 4, scale = 3)
+	@Column(nullable = false, precision = 5, scale = 4)
 	private BigDecimal confidence;
 
 	@Column(columnDefinition = "TEXT")

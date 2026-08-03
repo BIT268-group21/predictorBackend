@@ -13,8 +13,8 @@ public interface StockPriceRepository extends JpaRepository<StockPrice, Long> {
 
 	Optional<StockPrice> findByTickerAndPriceDate(String ticker, LocalDate priceDate);
 
-	List<StockPrice> findByTickerAndPriceDateGreaterThanEqualOrderByPriceDateAsc(
-			String ticker, LocalDate fromDate);
+	Optional<StockPrice> findTopByTickerAndPriceDateLessThanOrderByPriceDateDesc(
+			String ticker, LocalDate priceDate);
 
 	List<StockPrice> findByTickerOrderByPriceDateDesc(String ticker, Pageable pageable);
 

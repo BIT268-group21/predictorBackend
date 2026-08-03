@@ -12,7 +12,7 @@ public record AppProperties(
 	public record FmpProperties(String apiKey, String baseUrl) {
 	}
 
-	public record IngestionProperties(int priceLookbackDays, String cron) {
+	public record IngestionProperties(String cron) {
 	}
 
 	public record AccuracyJobProperties(String cron) {

@@ -6,7 +6,7 @@ spring:
     # username/password intentionally omitted here: Spring treats a whitespace-only
     # password as unset, so local credentials are passed as JDBC URL query params
     # instead (see the default below). Override DATABASE_URL entirely for other envs.
-    url: ${DATABASE_URL:jdbc:postgresql://localhost:3000/stock_predictor?schema=public&user=postgres&password=%20%20%20%20}
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/stock_predictor?schema=public&user=postgres&password=password}
 
   jpa:
     hibernate:
@@ -25,7 +25,6 @@ app:
     api-key: ${FMP_API_KEY:}
     base-url: https://financialmodelingprep.com
   ingestion:
-    price-lookback-days: 60
     cron: ${INGESTION_CRON:0 0 18 * * *}
   accuracy:
     cron: ${ACCURACY_CRON:0 0 19 * * *}

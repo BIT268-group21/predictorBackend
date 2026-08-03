@@ -48,13 +48,6 @@ public class StockService {
 				.toList();
 	}
 
-	public List<StockPrice> getPricesForPrediction(String ticker, int lookbackDays) {
-		requireStockExists(ticker);
-		return stockPriceRepository.findByTickerAndPriceDateGreaterThanEqualOrderByPriceDateAsc(
-				normalizeTicker(ticker),
-				java.time.LocalDate.now().minusDays(lookbackDays));
-	}
-
 	private void requireStockExists(String ticker) {
 		if (!stockRepository.existsById(normalizeTicker(ticker))) {
 			throw new ResourceNotFoundException("Stock not found: " + ticker);

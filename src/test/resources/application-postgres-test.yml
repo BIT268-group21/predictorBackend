@@ -26,6 +26,5 @@ app:
     base-url: http://localhost:9090
   ingestion:
     cron: "-"
-    price-lookback-days: 30
   accuracy:
     cron: "-"
