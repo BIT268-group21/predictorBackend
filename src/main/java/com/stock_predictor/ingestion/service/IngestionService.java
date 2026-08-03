@@ -1,14 +1,8 @@
 package com.stock_predictor.ingestion.service;
 
-import com.stock_predictor.config.AppProperties;
 import com.stock_predictor.ingestion.fmp.FmpClient;
 import com.stock_predictor.ingestion.fmp.FmpPriceRecord;
-import com.stock_predictor.ingestion.ml.MlPredictRequest;
-import com.stock_predictor.ingestion.ml.MlPredictResponse;
-import com.stock_predictor.ingestion.ml.MlServiceClient;
 import com.stock_predictor.predictions.entity.Prediction;
-import com.stock_predictor.predictions.entity.PredictionFeature;
-import com.stock_predictor.predictions.repository.PredictionFeatureRepository;
 import com.stock_predictor.predictions.repository.PredictionRepository;
 import com.stock_predictor.stocks.entity.Stock;
 import com.stock_predictor.stocks.entity.StockPrice;
@@ -32,26 +26,17 @@ public class IngestionService {
 	private final StockRepository stockRepository;
 	private final StockPriceRepository stockPriceRepository;
 	private final PredictionRepository predictionRepository;
-	private final PredictionFeatureRepository predictionFeatureRepository;
 	private final FmpClient fmpClient;
-	private final MlServiceClient mlServiceClient;
-	private final AppProperties appProperties;
 
 	public IngestionService(
 			StockRepository stockRepository,
 			StockPriceRepository stockPriceRepository,
 			PredictionRepository predictionRepository,
-			PredictionFeatureRepository predictionFeatureRepository,
-			FmpClient fmpClient,
-			MlServiceClient mlServiceClient,
-			AppProperties appProperties) {
+			FmpClient fmpClient) {
 		this.stockRepository = stockRepository;
 		this.stockPriceRepository = stockPriceRepository;
 		this.predictionRepository = predictionRepository;
-		this.predictionFeatureRepository = predictionFeatureRepository;
 		this.fmpClient = fmpClient;
-		this.mlServiceClient = mlServiceClient;
-		this.appProperties = appProperties;
 	}
 
 	@Transactional
@@ -87,64 +72,6 @@ public class IngestionService {
 
 		log.info("Ingested {} new price rows for {}", inserted, ticker);
 		return inserted;
-	}
-
-	@Transactional
-	public void generatePredictionsForAllStocks() {
-		int lookbackDays = appProperties.ingestion().priceLookbackDays();
-		for (Stock stock : stockRepository.findAll()) {
-			generatePredictionForTicker(stock.getTicker(), lookbackDays);
-		}
-	}
-
-	@Transactional
-	public void generatePredictionForTicker(String ticker, int lookbackDays) {
-		LocalDate fromDate = LocalDate.now().minusDays(lookbackDays);
-		List<StockPrice> prices = stockPriceRepository
-				.findByTickerAndPriceDateGreaterThanEqualOrderByPriceDateAsc(ticker, fromDate);
-
-		if (prices.size() < 5) {
-			log.warn("Not enough price history for {} to generate prediction", ticker);
-			return;
-		}
-
-		LocalDate latestPriceDate = prices.get(prices.size() - 1).getPriceDate();
-		LocalDate predictedForDate = latestPriceDate.plusDays(1);
-
-		boolean alreadyExists = predictionRepository
-				.findTopByTickerOrderByPredictedForDateDescCreatedAtDesc(ticker)
-				.map(existing -> existing.getPredictedForDate().equals(predictedForDate))
-				.orElse(false);
-		if (alreadyExists) {
-			log.debug("Prediction already exists for {} on {}", ticker, predictedForDate);
-			return;
-		}
-
-		MlPredictRequest request = new MlPredictRequest(
-				ticker,
-				prices.stream()
-						.map(price -> new MlPredictRequest.MlPricePoint(
-								price.getPriceDate(),
-								price.getOpen(),
-								price.getHigh(),
-								price.getLow(),
-								price.getClose(),
-								price.getVolume()))
-						.toList());
-
-		MlPredictResponse response = mlServiceClient.predict(request);
-
-		Prediction prediction = predictionRepository.save(new Prediction(
-				ticker,
-				response.trend(),
-				response.confidence(),
-				response.reasoning(),
-				predictedForDate));
-
-		response.indicators().forEach((name, value) ->
-				predictionFeatureRepository.save(new PredictionFeature(prediction, name, value)));
-
-		log.info("Stored prediction for {} targeting {}", ticker, predictedForDate);
 	}
 
 	@Transactional

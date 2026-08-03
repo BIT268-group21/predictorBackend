@@ -24,12 +24,8 @@ app:
   fmp:
     api-key: test-key
     base-url: http://localhost:9090
-  ml:
-    base-url: http://localhost:9091
   ingestion:
     cron: "-"
     price-lookback-days: 30
-  prediction:
-    cron: "-"
   accuracy:
     cron: "-"

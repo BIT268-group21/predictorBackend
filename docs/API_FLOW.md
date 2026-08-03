@@ -78,7 +78,7 @@ This is the only write endpoint and the only one with a request body, so it has 
 2. Each `PredictionBatchItem` (`predictions/dto/PredictionBatchItem.java`) is Bean-Validation-checked (`@Valid` cascades into the list): `ticker` not blank, `predictionDate`/`targetDate` not null, `predictedDirection` must match `up|down`, `confidence`/`modelAccuracy` in `[0,1]`, `features` a non-empty `Map<String, BigDecimal>` (`@NotEmpty` — deliberately *not* a fixed set of named fields, since the ML pipeline's per-stock feature selection means the keys and count genuinely vary per stock; see the Schema section above), `lastClosePrice` >= 0. Field names on the wire are snake_case via `@JsonProperty` (`prediction_date`, `target_date`, `predicted_direction`, `model_accuracy`, `last_close_price`) to match the Data Contract exactly, even though the Java fields are camelCase — `features`' own keys are passed through as-is (they're map keys, not annotated Java fields).
    - **Any validation failure** -> `MethodArgumentNotValidException` -> `GlobalExceptionHandler.handleValidation()` -> `400` listing every failing field across every record in one message (e.g. `predictions[3].ticker: must not be blank`).
 3. Controller calls `PredictionService.saveBatch(request)` (`PredictionService.java:58`), annotated `@Transactional` (overriding the class-level `@Transactional(readOnly = true)`).
-4. Service maps each `PredictionBatchItem` -> `Prediction` entity via `toEntity()`, then `PredictionRepository.saveAll(entities)` — this populates each entity's generated `id` (needed for step 5). `reasoning` is left `null` on the entity — this endpoint does **not** call an LLM; that happens elsewhere (or hasn't been built yet — see the architecture note below). `target_date` from the contract maps to the entity's existing `predictedForDate` field/`predicted_for_date` column.
+4. Service maps each `PredictionBatchItem` -> `Prediction` entity via `toEntity()`, then `PredictionRepository.saveAll(entities)` — this populates each entity's generated `id` (needed for step 5). `reasoning` is left `null` on the entity — this endpoint does **not** call an LLM, and the reasoning field is not currently produced. `target_date` from the contract maps to the entity's existing `predictedForDate` field/`predicted_for_date` column.
 5. For every `(name, value)` pair in each item's `features` map, builds a `PredictionFeature(savedPrediction, name, value)` and `PredictionFeatureRepository.saveAll(...)`s them all — still inside the same transaction from step 3, so a batch either fully commits (predictions + all their features) or fully rolls back.
 6. Returns `201` with `BatchPredictionResponse` (`predictions/dto/BatchPredictionResponse.java`): `{"saved": <count>}` (count of predictions, not feature rows).
 
@@ -118,7 +118,7 @@ This is the only write endpoint and the only one with a request body, so it has 
 Lives in the `stocks` package/URL space but delegates entirely to the `predictions` service:
 1. Controller calls `PredictionService.getLatestPrediction(ticker)` (`PredictionService.java:56`).
 2. `404` if the ticker isn't in `stocks`; **separately**, `404` if the ticker exists but has no prediction row yet (`PredictionRepository.findTopByTickerOrderByPredictedForDateDescCreatedAtDesc`).
-3. Maps to `PredictionDetailResponse` (`predictions/dto/PredictionDetailResponse.java`): `ticker, trend, confidence, reasoning, indicators` — `indicators` is built by `PredictionService.toIndicatorsMap()`, which queries `PredictionFeatureRepository.findByPredictionId(...)` and turns the rows back into a `name -> value` map. Whatever feature names/count that particular prediction was stored with (batch or live path, see architecture note below) is exactly what comes back here — nothing fixed or assumed.
+3. Maps to `PredictionDetailResponse` (`predictions/dto/PredictionDetailResponse.java`): `ticker, trend, confidence, reasoning, indicators` — `indicators` is built by `PredictionService.toIndicatorsMap()`, which queries `PredictionFeatureRepository.findByPredictionId(...)` and turns the rows back into a `name -> value` map. Whatever feature names/count that particular prediction was stored with is exactly what comes back here — nothing fixed or assumed.
 
 **Reads:** `stocks`, `predictions`. **Writes:** none.
 
@@ -126,19 +126,14 @@ Lives in the `stocks` package/URL space but delegates entirely to the `predictio
 
 ## Background jobs (not HTTP endpoints, but they're the other way data enters/changes)
 
-All three are `@Scheduled` `@Component`s in `ingestion/job/`, each just calling one `IngestionService` method — disabled entirely under the `test` profile (`spring.task.scheduling.enabled: false`) and given `cron: "-"` (never fires) in test config.
+The **only** writer to the `predictions` table is `POST /api/predictions/batch` (#3 above): the ML service is the sole producer of predictions, pushing them in via that endpoint. The backend never generates a prediction itself — it only grades predictions once their `predicted_for_date` has passed (see `AccuracyCheckJob` below).
+
+The remaining `@Scheduled` `@Component`s in `ingestion/job/` each call one `IngestionService` method — disabled entirely under the `test` profile (`spring.task.scheduling.enabled: false`) and given `cron: "-"` (never fires) in test config.
 
 | Job | File | Cron property | Calls |
 |---|---|---|---|
 | `DataIngestionJob` | `ingestion/job/DataIngestionJob.java` | `app.ingestion.cron` (default `0 0 18 * * *`) | `IngestionService.ingestPricesForAllStocks()` — pulls OHLCV from FMP (`ingestion/fmp/FmpClient.java`) for every stock, skips dates already present |
-| `PredictionJob` | `ingestion/job/PredictionJob.java` | `app.prediction.cron` (default `0 30 18 * * *`) | `IngestionService.generatePredictionsForAllStocks()` — see architecture note below |
 | `AccuracyCheckJob` | `ingestion/job/AccuracyCheckJob.java` | `app.accuracy.cron` (default `0 0 19 * * *`) | `IngestionService.evaluatePendingPredictions()` — for any prediction whose `predicted_for_date` has passed and isn't graded yet, compares the actual close price on that date vs. the prior day (`IngestionService.classifyTrend()`, `> 0.1%` move = up/down, else `flat`), sets `actual_trend` only — `was_correct` is no longer a stored column (3NF fix, see Schema section above); it's derived from `actual_trend`/`predicted_trend` at read time |
-
-### ⚠ Architecture note worth flagging to the team
-
-`PredictionJob` / `IngestionService.generatePredictionForTicker()` (`ingestion/service/IngestionService.java:100`) calls `MlServiceClient.predict()` (`ingestion/ml/MlServiceClient.java`) **live, synchronously, from the backend**, to a configurable `ML_SERVICE_URL`. This is a *second, separate* code path into the `predictions` table alongside the new `POST /api/predictions/batch` endpoint (#3 above) — and it's the exact pattern the root `decisions.md` (Section 9, "Explicitly Rejected/Reconsidered Approaches") says was **rejected** in favor of the push-based batch model: *"Backend calling a live Python API ... rejected in favor of a push model (ML layer sends data outward)."*
-
-Both paths write to the same `predictions` table, so nothing is currently broken by having both. **Update 2026-07-31:** the `prediction_features` child-table redesign (see Schema section above) actually fixes the indicator-loss problem noted here previously — since feature storage is now a generic `name -> value` table rather than fixed columns, the live path's `response.indicators()` (historically keys like `sma5`/`sma20`/`rsi14`) is persisted again, the same way the batch path's features are (`IngestionService.generatePredictionForTicker()` now saves a `PredictionFeature` row per indicator). Live-path predictions still never set `prediction_date`, `model_accuracy`, or `last_close_price` — those stay `null`, since that's genuinely batch-only metadata. The bigger architectural question is unchanged: is `PredictionJob`/`MlServiceClient`/`FmpClient`'s live-prediction path dead code to remove, or a real fallback path? (decisions.md Section 2a says the backend teammate has agreed to resolve this — not yet done as of this writing.)
 
 ---
 
@@ -150,9 +145,8 @@ src/main/java/com/stock_predictor/
 ├── config/            AppProperties, CorsConfig, RestClientConfig, StockSeedData
 ├── ingestion/
 │   ├── fmp/           FmpClient, FmpPriceRecord           (external price data source)
-│   ├── ml/             MlServiceClient, MlPredictRequest/Response  (live-call path, see note above)
-│   ├── job/            DataIngestionJob, PredictionJob, AccuracyCheckJob   (@Scheduled)
-│   └── service/        IngestionService                   (orchestrates all three jobs)
+│   ├── job/            DataIngestionJob, AccuracyCheckJob   (@Scheduled)
+│   └── service/        IngestionService                   (orchestrates the scheduled jobs)
 ├── predictions/
 │   ├── controller/     PredictionController                (/api/predictions/*)
 │   ├── service/        PredictionService

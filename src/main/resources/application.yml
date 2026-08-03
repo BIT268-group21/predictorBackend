@@ -24,13 +24,9 @@ app:
   fmp:
     api-key: ${FMP_API_KEY:}
     base-url: https://financialmodelingprep.com
-  ml:
-    base-url: ${ML_SERVICE_URL:http://localhost:8000}
   ingestion:
     price-lookback-days: 60
     cron: ${INGESTION_CRON:0 0 18 * * *}
-  prediction:
-    cron: ${PREDICTION_CRON:0 30 18 * * *}
   accuracy:
     cron: ${ACCURACY_CRON:0 0 19 * * *}
   cors:
