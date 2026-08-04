@@ -7,7 +7,8 @@ public record AppProperties(
 		FmpProperties fmp,
 		IngestionProperties ingestion,
 		AccuracyJobProperties accuracy,
-		CorsProperties cors) {
+		CorsProperties cors,
+		BatchProperties batch) {
 
 	public record FmpProperties(String apiKey, String baseUrl) {
 	}
@@ -19,5 +20,8 @@ public record AppProperties(
 	}
 
 	public record CorsProperties(String allowedOrigins) {
+	}
+
+	public record BatchProperties(String authToken) {
 	}
 }
