@@ -39,6 +39,9 @@ import tools.jackson.databind.json.JsonMapper;
 @ActiveProfiles("postgres-test")
 class PredictionBatchIntegrationTest {
 
+	// Matches app.batch.auth-token in application-postgres-test.yml.
+	private static final String VALID_AUTH_HEADER = "Bearer test-batch-token";
+
 	// Locked 50-ticker list, decisions.md Section 4.
 	private static final List<String> LOCKED_TICKERS = List.of(
 			"AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "BRK.B", "JPM", "V",
@@ -94,6 +97,7 @@ class PredictionBatchIntegrationTest {
 
 		mockMvc.perform(post("/api/predictions/batch")
 						.contentType(MediaType.APPLICATION_JSON)
+						.header("Authorization", VALID_AUTH_HEADER)
 						.content(body))
 				.andExpect(status().isCreated())
 				.andExpect(jsonPath("$.saved").value(50));
@@ -159,6 +163,7 @@ class PredictionBatchIntegrationTest {
 
 		mockMvc.perform(post("/api/predictions/batch")
 						.contentType(MediaType.APPLICATION_JSON)
+						.header("Authorization", VALID_AUTH_HEADER)
 						.content(body))
 				.andExpect(status().isCreated())
 				.andExpect(jsonPath("$.saved").value(2));
@@ -213,6 +218,7 @@ class PredictionBatchIntegrationTest {
 
 		mockMvc.perform(post("/api/predictions/batch")
 						.contentType(MediaType.APPLICATION_JSON)
+						.header("Authorization", VALID_AUTH_HEADER)
 						.content(body))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.error").exists())
@@ -242,6 +248,7 @@ class PredictionBatchIntegrationTest {
 
 		mockMvc.perform(post("/api/predictions/batch")
 						.contentType(MediaType.APPLICATION_JSON)
+						.header("Authorization", VALID_AUTH_HEADER)
 						.content(body))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.error").exists());
@@ -258,11 +265,52 @@ class PredictionBatchIntegrationTest {
 
 		mockMvc.perform(post("/api/predictions/batch")
 						.contentType(MediaType.APPLICATION_JSON)
+						.header("Authorization", VALID_AUTH_HEADER)
 						.content(body))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.error").exists());
 
 		org.junit.jupiter.api.Assertions.assertEquals(0, predictionRepository.count());
+	}
+
+	@Test
+	void missingAuthorizationHeaderIsRejectedWithUnauthorized() throws Exception {
+		LocalDate predictionDate = LocalDate.of(2026, 7, 20);
+		LocalDate targetDate = LocalDate.of(2026, 7, 21);
+		String body = jsonMapper.writeValueAsString(
+				Map.of("predictions", List.of(validPredictionItem("AAPL", predictionDate, targetDate))));
+
+		mockMvc.perform(post("/api/predictions/batch")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(body))
+				.andExpect(status().isUnauthorized());
+
+		org.junit.jupiter.api.Assertions.assertEquals(0, predictionRepository.count());
+	}
+
+	@Test
+	void wrongAuthorizationTokenIsRejectedWithUnauthorized() throws Exception {
+		LocalDate predictionDate = LocalDate.of(2026, 7, 20);
+		LocalDate targetDate = LocalDate.of(2026, 7, 21);
+		String body = jsonMapper.writeValueAsString(
+				Map.of("predictions", List.of(validPredictionItem("AAPL", predictionDate, targetDate))));
+
+		mockMvc.perform(post("/api/predictions/batch")
+						.contentType(MediaType.APPLICATION_JSON)
+						.header("Authorization", "Bearer not-the-configured-token")
+						.content(body))
+				.andExpect(status().isUnauthorized());
+
+		org.junit.jupiter.api.Assertions.assertEquals(0, predictionRepository.count());
+	}
+
+	@Test
+	void getEndpointsAreUnaffectedByBatchAuth() throws Exception {
+		// The interceptor only guards POST /api/predictions/batch -- GET reads
+		// used by the frontend must stay open, with no Authorization header.
+		mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+						.get("/api/predictions/top"))
+				.andExpect(status().isOk());
 	}
 
 	@Test
@@ -273,6 +321,7 @@ class PredictionBatchIntegrationTest {
 
 		mockMvc.perform(post("/api/predictions/batch")
 						.contentType(MediaType.APPLICATION_JSON)
+						.header("Authorization", VALID_AUTH_HEADER)
 						.content(body))
 				.andExpect(status().isBadRequest());
 	}
