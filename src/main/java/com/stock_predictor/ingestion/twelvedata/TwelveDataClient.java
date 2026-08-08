@@ -24,7 +24,7 @@ public class TwelveDataClient {
 
 	// Only the last couple of trading days are needed to fill in stock_prices for
 	// grading, not full history.
-	private static final int OUTPUT_SIZE = 10;
+	private static final int OUTPUT_SIZE = 40;
 
 	private final RestClient restClient;
 	private final AppProperties appProperties;
