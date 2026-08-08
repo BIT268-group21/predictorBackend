@@ -1,7 +1,7 @@
 package com.stock_predictor.ingestion.service;
 
-import com.stock_predictor.ingestion.fmp.FmpClient;
-import com.stock_predictor.ingestion.fmp.FmpPriceRecord;
+import com.stock_predictor.ingestion.twelvedata.TwelveDataClient;
+import com.stock_predictor.ingestion.twelvedata.TwelveDataPriceRecord;
 import com.stock_predictor.predictions.entity.Prediction;
 import com.stock_predictor.predictions.repository.PredictionRepository;
 import com.stock_predictor.stocks.entity.Stock;
@@ -23,35 +23,54 @@ public class IngestionService {
 	private static final Logger log = LoggerFactory.getLogger(IngestionService.class);
 	private static final BigDecimal FLAT_THRESHOLD = new BigDecimal("0.001");
 
+	// Twelve Data's free tier allows 8 requests/minute; the ML pipeline's own
+	// pull_and_check.py uses this same 8-second interval successfully.
+	private static final long REQUEST_DELAY_MS = 8_000;
+
 	private final StockRepository stockRepository;
 	private final StockPriceRepository stockPriceRepository;
 	private final PredictionRepository predictionRepository;
-	private final FmpClient fmpClient;
+	private final TwelveDataClient twelveDataClient;
 
 	public IngestionService(
 			StockRepository stockRepository,
 			StockPriceRepository stockPriceRepository,
 			PredictionRepository predictionRepository,
-			FmpClient fmpClient) {
+			TwelveDataClient twelveDataClient) {
 		this.stockRepository = stockRepository;
 		this.stockPriceRepository = stockPriceRepository;
 		this.predictionRepository = predictionRepository;
-		this.fmpClient = fmpClient;
+		this.twelveDataClient = twelveDataClient;
 	}
 
 	@Transactional
 	public void ingestPricesForAllStocks() {
-		for (Stock stock : stockRepository.findAll()) {
-			ingestPricesForTicker(stock.getTicker());
+		List<Stock> stocks = stockRepository.findAll();
+		for (int i = 0; i < stocks.size(); i++) {
+			ingestPricesForTicker(stocks.get(i).getTicker());
+			if (i < stocks.size() - 1) {
+				sleepBetweenRequests();
+			}
+		}
+	}
+
+	// Package-private (not private) so tests can spy on it instead of eating the
+	// real 8-second delay per ticker.
+	void sleepBetweenRequests() {
+		try {
+			Thread.sleep(REQUEST_DELAY_MS);
+		} catch (InterruptedException ex) {
+			Thread.currentThread().interrupt();
+			log.warn("Interrupted while waiting between Twelve Data requests");
 		}
 	}
 
 	@Transactional
 	public int ingestPricesForTicker(String ticker) {
-		List<FmpPriceRecord> records = fmpClient.fetchHistoricalPrices(ticker);
+		List<TwelveDataPriceRecord> records = twelveDataClient.fetchHistoricalPrices(ticker);
 		int inserted = 0;
 
-		for (FmpPriceRecord record : records) {
+		for (TwelveDataPriceRecord record : records) {
 			LocalDate priceDate = parseDate(record.date());
 			if (priceDate == null) {
 				continue;
@@ -127,7 +146,7 @@ public class IngestionService {
 		try {
 			return LocalDate.parse(value);
 		} catch (DateTimeParseException ex) {
-			log.warn("Unable to parse FMP date: {}", value);
+			log.warn("Unable to parse Twelve Data date: {}", value);
 			return null;
 		}
 	}

@@ -21,9 +21,9 @@ server:
   port: ${PORT:8080}
 
 app:
-  fmp:
-    api-key: ${FMP_API_KEY:}
-    base-url: https://financialmodelingprep.com
+  twelvedata:
+    api-key: ${TWELVE_DATA_API_KEY:}
+    base-url: https://api.twelvedata.com
   ingestion:
     cron: ${INGESTION_CRON:0 0 18 * * *}
   accuracy:

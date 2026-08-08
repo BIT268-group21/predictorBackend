@@ -21,7 +21,7 @@ services:
       - "8080:8080"
     environment:
       DATABASE_URL: jdbc:postgresql://postgres:5432/stock_predictor?schema=public&user=postgres&password=postgres
-      FMP_API_KEY: ${FMP_API_KEY:-}
+      TWELVE_DATA_API_KEY: ${TWELVE_DATA_API_KEY:-}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:3000}
     depends_on:
       postgres:

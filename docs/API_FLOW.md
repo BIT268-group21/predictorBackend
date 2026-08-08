@@ -132,7 +132,7 @@ The remaining `@Scheduled` `@Component`s in `ingestion/job/` each call one `Inge
 
 | Job | File | Cron property | Calls |
 |---|---|---|---|
-| `DataIngestionJob` | `ingestion/job/DataIngestionJob.java` | `app.ingestion.cron` (default `0 0 18 * * *`) | `IngestionService.ingestPricesForAllStocks()` — pulls OHLCV from FMP (`ingestion/fmp/FmpClient.java`) for every stock, skips dates already present |
+| `DataIngestionJob` | `ingestion/job/DataIngestionJob.java` | `app.ingestion.cron` (default `0 0 18 * * *`) | `IngestionService.ingestPricesForAllStocks()` — pulls OHLCV from Twelve Data (`ingestion/twelvedata/TwelveDataClient.java`) for every stock, 8s delay between tickers to stay under the free-tier rate limit, skips dates already present |
 | `AccuracyCheckJob` | `ingestion/job/AccuracyCheckJob.java` | `app.accuracy.cron` (default `0 0 19 * * *`) | `IngestionService.evaluatePendingPredictions()` — for any prediction whose `predicted_for_date` has passed and isn't graded yet, compares the actual close price on that date vs. the prior day (`IngestionService.classifyTrend()`, `> 0.1%` move = up/down, else `flat`), sets `actual_trend` only — `was_correct` is no longer a stored column (3NF fix, see Schema section above); it's derived from `actual_trend`/`predicted_trend` at read time |
 
 ---
@@ -144,7 +144,7 @@ src/main/java/com/stock_predictor/
 ├── common/            ApiError, GlobalExceptionHandler, ResourceNotFoundException
 ├── config/            AppProperties, CorsConfig, RestClientConfig, StockSeedData
 ├── ingestion/
-│   ├── fmp/           FmpClient, FmpPriceRecord           (external price data source)
+│   ├── twelvedata/     TwelveDataClient, TwelveDataPriceRecord (external price data source)
 │   ├── job/            DataIngestionJob, AccuracyCheckJob   (@Scheduled)
 │   └── service/        IngestionService                   (orchestrates the scheduled jobs)
 ├── predictions/

@@ -4,13 +4,13 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "app")
 public record AppProperties(
-		FmpProperties fmp,
+		TwelveDataProperties twelvedata,
 		IngestionProperties ingestion,
 		AccuracyJobProperties accuracy,
 		CorsProperties cors,
 		BatchProperties batch) {
 
-	public record FmpProperties(String apiKey, String baseUrl) {
+	public record TwelveDataProperties(String apiKey, String baseUrl) {
 	}
 
 	public record IngestionProperties(String cron) {
